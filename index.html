@@ -228,6 +228,7 @@
       <a href="#overview">Tổng quan</a>
       <a href="#demo">Demo</a>
       <a href="#arch">Kiến trúc</a>
+      <a href="#oop">Phân tích OOP</a>
       <a href="#test">Kiểm thử</a>
       <a href="#code">Code</a>
       <button class="ghbtn" id="themeBtn" type="button" style="cursor:pointer">☀ Sáng</button>
@@ -290,6 +291,320 @@
         <div class="pb"><pre class="tree" id="treeBox"></pre></div>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- ============ 4b. PHÂN TÍCH OOP ============ -->
+<section id="oop">
+  <div class="wrap">
+    <div class="tag">// 04 — phân tích OOP</div>
+    <h2>Phân Tích OOP</h2>
+    <p class="lead">Bốn nguyên lý lập trình hướng đối tượng và mẫu thiết kế Singleton được áp dụng trong dự án Muoi B2B Invoice Manager.</p>
+
+    <div class="panel acc reveal sl" style="margin-top:26px">
+      <div class="ph"><span>① Encapsulation — Đóng Gói</span><span class="chev">+</span></div>
+      <div class="pb">
+        <p style="color:var(--accent2);font-family:var(--mono);font-size:12.5px;margin-bottom:8px">1: Lớp <code>Invoice</code> — Đóng gói tính toán tài chính</p>
+        <pre><code class="language-swift">// File: Models/Models.swift — Dòng 6-62
+
+public class Invoice: NSManagedObject {
+    // Dữ liệu thô — lưu trong database
+    @NSManaged public var subtotal: Double           // Tổng trước chiết khấu
+    @NSManaged public var discountRate: Double       // Tỷ lệ chiết khấu (vd: 0.1 = 10%)
+    @NSManaged public var totalAmount: Double        // Tổng cuối cùng
+    @NSManaged public var paidAmount: Double         // Số tiền đã thanh toán
+
+    // Thuộc tính tính toán — ĐÓNG GÓI logic bên trong
+    // Người dùng gọi "invoice.remainingAmount" mà không cần biết công thức
+    public var remainingAmount: Double {
+        return max(totalAmount - paidAmount, 0)   // Không âm (min = 0)
+    }
+
+    // ĐÓNG GÓI logic kiểm tra quá hạn
+    public var isOverdue: Bool {
+        return Date() &gt; dueDate
+            &amp;&amp; paymentStatus != "paid"
+            &amp;&amp; status != "cancelled"
+    }
+
+    // ĐÓNG GÓI việc dịch trạng thái sang tiếng Việt
+    public var statusDisplay: String {
+        switch status {
+        case "draft":     return "Nháp"
+        case "pending":   return "Chờ xử lý"
+        case "paid":      return "Đã thanh toán"
+        case "cancelled": return "Hủy"
+        default:          return status
+        }
+    }
+}</code></pre>
+        <p style="color:var(--muted);font-size:14px;margin:10px 0 16px">Lợi ích: View chỉ cần gọi <code style="color:var(--accent2)">invoice.isOverdue</code> — không cần biết bên trong so sánh ngày tháng như thế nào.</p>
+
+        <p style="color:var(--accent2);font-family:var(--mono);font-size:12.5px;margin-bottom:8px">2: Lớp <code>CoreDataManager</code> — Đóng gói truy cập database</p>
+        <pre><code class="language-swift">// File: Services/CoreDataManager.swift — Dòng 4-25
+
+class CoreDataManager {
+    static let shared = CoreDataManager()   // Chỉ 1 instance
+    private init() {                        // private init() — ĐÓNG GÓI: không ai tạo được mới
+        container = NSPersistentContainer(...)
+    }
+
+    func save() {
+        if context.hasChanges {
+            try context.save()
+        }
+    }
+
+    func delete(_ object: NSManagedObject) {
+        context.delete(object)
+        save()   // Tự động lưu sau khi xóa — đóng gói logic
+    }
+}</code></pre>
+
+        <pre class="tree" style="margin-top:14px">┌─────────────────────────────────────────┐
+│              Invoice (Class)            │
+│─────────────────────────────────────────│
+│  [DỮ LIỆU BÊN TRONG - được bảo vệ]      │
+│  - subtotal: Double                     │
+│  - paidAmount: Double                   │
+│  - dueDate: Date                        │
+│─────────────────────────────────────────│
+│  [CỬA RA VÀO ĐƯỢC KIỂM SOÁT - public]   │
+│  + remainingAmount → Double             │
+│  + isOverdue → Bool                     │
+│  + statusDisplay → String               │
+└─────────────────────────────────────────┘
+         ↑ View chỉ dùng phần này</pre>
+      </div>
+    </div>
+
+    <div class="panel acc reveal sr" style="margin-top:16px">
+      <div class="ph"><span>② Inheritance — Kế Thừa</span><span class="chev">+</span></div>
+      <div class="pb">
+        <p style="color:var(--accent2);font-family:var(--mono);font-size:12.5px;margin-bottom:8px">1: <code>Invoice</code> và <code>Client</code> kế thừa từ <code>NSManagedObject</code></p>
+        <pre><code class="language-swift">// LỚP CHA (từ Apple framework CoreData) — biết cách lưu/đọc SQLite,
+// theo dõi thay đổi, quản lý quan hệ dữ liệu.
+
+// LỚP CON 1 — kế thừa TẤT CẢ tính năng của NSManagedObject
+public class Invoice: NSManagedObject {    // ":" có nghĩa là "kế thừa từ"
+    @NSManaged public var invoiceNumber: String
+    @NSManaged public var totalAmount: Double
+    public var isOverdue: Bool { ... }
+    public var remainingAmount: Double { ... }
+}
+
+// LỚP CON 2 — cũng kế thừa NSManagedObject, thuộc tính khác cho khách hàng
+public class Client: NSManagedObject {
+    @NSManaged public var companyName: String
+    @NSManaged public var creditLimit: Double
+    public var creditAvailable: Double { ... }
+    public var isActive: Bool { ... }
+}</code></pre>
+
+        <p style="color:var(--accent2);font-family:var(--mono);font-size:12.5px;margin:14px 0 8px">2: <code>AppDelegate</code> kế thừa từ <code>NSObject</code></p>
+        <pre><code class="language-swift">// File: App/B2BApp.swift — Dòng 66
+class AppDelegate: NSObject, NSApplicationDelegate {
+    //               ↑ Kế thừa từ NSObject (lớp cơ sở của macOS)
+    //                             ↑ Tuân theo giao thức NSApplicationDelegate
+    var aboutWindow: NSWindow?
+    var preferencesWindow: NSWindow?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        setupMenuBar()
+        SyncManager.shared.startAutoSync()
+    }
+}</code></pre>
+
+        <pre class="tree" style="margin-top:14px">              ┌─────────────────────────┐
+              │      NSManagedObject    │  ← LỚP CHA (của Apple)
+              │─────────────────────────│
+              │ + save()                │
+              │ + delete()              │
+              │ + fetch()               │
+              └────────────┬────────────┘
+                           │ kế thừa
+              ┌────────────┴────────────┐
+    ┌─────────▼──────────┐  ┌──────────▼──────────┐
+    │      Invoice       │  │        Client        │  ← LỚP CON
+    │────────────────────│  │──────────────────────│
+    │ (kế thừa tất cả)  │  │ (kế thừa tất cả)     │
+    │ + invoiceNumber    │  │ + companyName        │
+    │ + totalAmount      │  │ + creditLimit        │
+    │ + isOverdue        │  │ + creditAvailable    │
+    └────────────────────┘  └──────────────────────┘</pre>
+      </div>
+    </div>
+
+    <div class="panel acc reveal sl" style="margin-top:16px">
+      <div class="ph"><span>③ Polymorphism — Đa Hình</span><span class="chev">+</span></div>
+      <div class="pb">
+        <p style="color:var(--accent2);font-family:var(--mono);font-size:12.5px;margin-bottom:8px">1: <code>statusDisplay</code> — cùng tên, khác đối tượng</p>
+        <pre><code class="language-swift">// Invoice.statusDisplay (Models.swift — dòng 53-61)
+public var statusDisplay: String {
+    switch status {
+    case "draft":     return "Nháp"           // Trạng thái hóa đơn
+    case "pending":   return "Chờ xử lý"
+    case "paid":      return "Đã thanh toán"
+    case "cancelled": return "Hủy"
+    default:          return status
+    }
+}
+
+// Client.statusDisplay (Models.swift — dòng 113-120)
+public var statusDisplay: String {
+    switch status {
+    case "active":      return "Hoạt động"    // Trạng thái khách hàng
+    case "inactive":    return "Không hoạt động"
+    case "blacklisted": return "Cấm"
+    default:            return status
+    }
+}
+// Cùng tên .statusDisplay, nhưng kết quả khác nhau tùy đối tượng</code></pre>
+
+        <p style="color:var(--accent2);font-family:var(--mono);font-size:12.5px;margin:14px 0 8px">2: Đa hình qua Generic — <code>fetchRequest&lt;T&gt;()</code></p>
+        <pre><code class="language-swift">// CoreDataManager.swift — Dòng 117-132
+// Một phương thức dùng được cho cả Invoice LẪN Client
+
+func fetchRequest&lt;T: NSManagedObject&gt;(
+    _ entityType: T.Type,
+    predicate: NSPredicate? = nil,
+    sortDescriptors: [NSSortDescriptor] = []
+) -&gt; [T] {
+    let request = NSFetchRequest&lt;T&gt;(entityName: String(describing: entityType))
+    request.predicate = predicate
+    return try context.fetch(request)
+}
+
+// Cách dùng:
+let invoices = CoreDataManager.shared.fetchRequest(Invoice.self)   // Lấy hóa đơn
+let clients  = CoreDataManager.shared.fetchRequest(Client.self)    // Lấy khách hàng
+//                                                  ↑ Đa hình: cùng hàm, kiểu khác nhau</code></pre>
+
+        <p style="color:var(--accent2);font-family:var(--mono);font-size:12.5px;margin:14px 0 8px">3: Đa hình qua Protocol <code>ObservableObject</code></p>
+        <pre><code class="language-swift">// Ba lớp đều tuân theo ObservableObject nhưng thông báo dữ liệu khác nhau:
+class APIService: ObservableObject {
+    @Published var rates: [String: Double] = [:]   // Thông báo khi tỷ giá thay đổi
+}
+class SyncManager: ObservableObject {
+    @Published var isSyncing = false               // Thông báo khi trạng thái sync thay đổi
+}
+class LocalizationManager: ObservableObject {
+    @Published var currentLanguage: String = "vi"  // Thông báo khi ngôn ngữ thay đổi
+}
+// Cả 3 đều là ObservableObject → View tự cập nhật khi chúng thay đổi</code></pre>
+      </div>
+    </div>
+
+    <div class="panel acc reveal sr" style="margin-top:16px">
+      <div class="ph"><span>④ Abstraction — Trừu Tượng Hóa</span><span class="chev">+</span></div>
+      <div class="pb">
+        <p style="color:var(--accent2);font-family:var(--mono);font-size:12.5px;margin-bottom:8px">1: Protocol <code>Identifiable</code> — Trừu tượng hóa định danh</p>
+        <pre><code class="language-swift">// Models/Models.swift — dòng 38, 94
+extension Invoice: Identifiable {}   // Invoice "tuân theo" giao thức Identifiable
+extension Client: Identifiable {}    // Client cũng vậy
+
+// Identifiable là một "hợp đồng" — định nghĩa CÁI GÌ, không nói LÀM THẾ NÀO:
+// protocol Identifiable {
+//     var id: ...   // Phải có thuộc tính "id"
+// }
+// Lợi ích: SwiftUI's List, ForEach tự biết cách hiển thị danh sách</code></pre>
+
+        <p style="color:var(--accent2);font-family:var(--mono);font-size:12.5px;margin:14px 0 8px">2: <code>AppDelegate</code> tuân theo <code>NSApplicationDelegate</code></p>
+        <pre><code class="language-swift">// App/B2BApp.swift — Dòng 66
+class AppDelegate: NSObject, NSApplicationDelegate {
+    // NSApplicationDelegate định nghĩa THỜI ĐIỂM nào gọi hàm gì
+    // macOS sẽ TỰ ĐỘNG GỌI chúng đúng lúc — developer chỉ cần triển khai
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        setupMenuBar()
+        SyncManager.shared.startAutoSync()
+        Task { await APIService.shared.fetchExchangeRates() }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        SyncManager.shared.stopAutoSync()
+        CoreDataManager.shared.save()   // Lưu dữ liệu trước khi tắt
+    }
+}</code></pre>
+
+        <p style="color:var(--accent2);font-family:var(--mono);font-size:12.5px;margin:14px 0 8px">3: <code>ObservableObject</code> + <code>@Published</code> — Trừu tượng hóa phản ứng UI</p>
+        <pre><code class="language-swift">// Services/APIService.swift — Dòng 21-28
+class APIService: ObservableObject {
+    @Published var rates: [String: Double] = [:]   // "published" = thông báo cho UI
+    // Khi rates thay đổi → SwiftUI TỰ ĐỘNG cập nhật màn hình
+    // → Developer không cần viết code "cập nhật UI thủ công"
+    // → Đây là TRỪU TƯỢNG HÓA quá trình cập nhật giao diện
+}</code></pre>
+
+        <pre class="tree" style="margin-top:14px">             ┌────────────────────────────┐
+             │   &lt;&lt;Protocol&gt;&gt;             │
+             │   ObservableObject         │   ← Hợp đồng (trừu tượng)
+             │────────────────────────────│
+             │  CÁI GÌ cần có:            │
+             │  @Published var ...        │
+             └───────────┬────────────────┘
+                         │ tuân theo (conforms to)
+          ┌──────────────┼──────────────┐
+          ▼              ▼              ▼
+  ┌───────────┐  ┌────────────┐  ┌─────────────────┐
+  │APIService │  │SyncManager │  │LocalizationMgr  │
+  │───────────│  │────────────│  │─────────────────│
+  │ @Published│  │ @Published │  │ @Published      │
+  │ rates     │  │ isSyncing  │  │ currentLanguage │
+  └───────────┘  └────────────┘  └─────────────────┘
+  Đều là ObservableObject → View tự cập nhật khi data thay đổi</pre>
+      </div>
+    </div>
+
+    <div class="panel acc reveal sl" style="margin-top:16px">
+      <div class="ph"><span>⑤ Singleton — Mẫu Thiết Kế</span><span class="chev">+</span></div>
+      <div class="pb">
+        <pre><code class="language-swift">// 1. CoreDataManager.swift — Dòng 4-25
+class CoreDataManager {
+    static let shared = CoreDataManager()   // ← Đây là đối tượng duy nhất
+    private init() { ... }                  // ← private = không ai tạo mới được
+}
+CoreDataManager.shared.save()              // Luôn dùng cùng 1 đối tượng
+
+// 2. APIService.swift — Dòng 21-34
+class APIService: ObservableObject {
+    static let shared = APIService()
+    private init() {}
+}
+
+// 3. SyncManager.swift — Dòng 3-15
+class SyncManager: ObservableObject {
+    static let shared = SyncManager()
+    private init() { loadLastSyncDate() }
+}</code></pre>
+
+        <pre class="tree" style="margin-top:14px">  View A ──────────────────────────────────┐
+                                           ▼
+  View B ──────────────────►  CoreDataManager.shared  ◄── 1 đối tượng duy nhất
+                                           │
+  View C ──────────────────────────────────┘
+                                           │
+                                           ▼
+                                    SQLite Database</pre>
+      </div>
+    </div>
+
+    <div class="panel reveal sb" style="margin-top:16px">
+      <div class="ph"><span>Tổng Kết — Bảng Áp Dụng OOP</span></div>
+      <div class="pb">
+        <table class="tt">
+          <thead><tr><th>Nguyên Lý</th><th>Định Nghĩa Đơn Giản</th><th>Áp Dụng Trong Dự Án</th><th>File / Dòng Code</th></tr></thead>
+          <tbody>
+            <tr><td><span class="badge b-pass">Encapsulation</span></td><td>Ẩn dữ liệu, chỉ mở cửa kiểm soát</td><td><code>isOverdue</code>, <code>remainingAmount</code>, <code>private init()</code></td><td class="note">Models.swift:45-61, CoreDataManager.swift:11</td></tr>
+            <tr><td><span class="badge b-pass">Inheritance</span></td><td>Con thừa hưởng cha</td><td><code>Invoice: NSManagedObject</code>, <code>Client: NSManagedObject</code>, <code>AppDelegate: NSObject</code></td><td class="note">Models.swift:6, 66; B2BApp.swift:66</td></tr>
+            <tr><td><span class="badge b-pass">Polymorphism</span></td><td>Cùng tên, hành vi khác</td><td><code>statusDisplay</code> trên Invoice vs Client; <code>fetchRequest&lt;T&gt;()</code> generic</td><td class="note">Models.swift:53, 113; CoreDataManager.swift:117</td></tr>
+            <tr><td><span class="badge b-pass">Abstraction</span></td><td>Ẩn phức tạp, chỉ hiện cái cần</td><td>Protocol <code>Identifiable</code>, <code>ObservableObject</code>, <code>NSApplicationDelegate</code></td><td class="note">Models.swift:38, 94; APIService.swift:21</td></tr>
+            <tr><td><span class="badge b-warn">Singleton</span></td><td>1 đối tượng duy nhất toàn app</td><td><code>CoreDataManager.shared</code>, <code>APIService.shared</code>, <code>SyncManager.shared</code></td><td class="note">Tất cả Services</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
   </div>
 </section>
 
